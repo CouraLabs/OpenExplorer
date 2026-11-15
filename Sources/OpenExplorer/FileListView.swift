@@ -10,6 +10,7 @@ struct FileListView: View {
     @EnvironmentObject var model: ExplorerModel
     @StateObject private var text = FileListTextState()
     @FocusState private var searchFocused: Bool
+    @FocusState private var addressFocused: Bool
     /// Re-render icons when switching light/dark (vscode-icons has light variants).
     @Environment(\.colorScheme) private var colorScheme
 
@@ -27,7 +28,7 @@ struct FileListView: View {
             statusBar
         }
         .alert(
-            model.namePrompt?.kind == .folder ? "New Folder" : "New File",
+            model.namePrompt?.title ?? "",
             isPresented: Binding(
                 get: { model.namePrompt != nil },
                 set: { if !$0 { model.namePrompt = nil } }
@@ -35,16 +36,17 @@ struct FileListView: View {
             presenting: model.namePrompt
         ) { prompt in
             TextField("Name", text: $text.newItemName)
-            Button("Create") { model.createItem(prompt.kind, named: text.newItemName, in: prompt.directory) }
+            Button(prompt.renaming == nil ? "Create" : "Rename") { model.commitNamePrompt(prompt, name: text.newItemName) }
                 .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) {}
         } message: { prompt in
-            Text("Create in \(prompt.directory.path)")
+            Text(prompt.renaming == nil ? "Create in \(prompt.directory.path)" : "Enter a new name for “\(prompt.suggestedName)”.")
         }
         .onChange(of: model.namePrompt?.id) {
             text.newItemName = model.namePrompt?.suggestedName ?? ""
         }
         .onChange(of: model.focusSearchID) { searchFocused = true }
+        .onChange(of: model.focusAddressID) { addressFocused = true }
     }
 
     private var searchPlaceholder: String {
@@ -113,6 +115,7 @@ struct FileListView: View {
             Image(nsImage: IconCache.icon(for: model.currentURL, isFolder: true))
             TextField("Path", text: $text.address)
                 .textFieldStyle(.roundedBorder)
+                .focused($addressFocused)
                 .onSubmit { model.goToPath(text.address) }
                 .onExitCommand { text.address = model.currentURL.path }
         }
@@ -209,6 +212,10 @@ struct FileListView: View {
             Button("Quick Look") { QuickLookController.shared.toggle(in: NSApp.keyWindow) }
             Button("Open in Terminal") { model.openInTerminal(list[0]) }
             Button(list.count > 1 ? "Copy Paths" : "Copy Path") { model.copyPaths(list) }
+            Divider()
+            Button("Rename…") { model.promptRename(list[0]) }
+                .disabled(list.count != 1)
+            Button("Duplicate") { model.duplicate(list) }
             Divider()
             Button("Cut") { model.cut(list) }
             Button("Copy") { model.copy(list) }

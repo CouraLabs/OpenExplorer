@@ -53,23 +53,45 @@ System Settings › Appearance › Icon & widget style: **Default, Dark, Clear, 
     Hidden files and app bundles are skipped unless hidden files are shown. Opening a folder clears the search.
 - **Address bar:** type any path (`~` is supported) and press Return.
 - The list auto-refreshes when the current folder changes on disk.
+- **Scroll memory and centred selection:** each folder remembers its scroll position and selection, which come back
+  when you return with Back, Forward, Up or the tree. Keyboard navigation and other selection changes (Up, new or renamed
+  files, re-sorting) keep the selected row centred in the list, and the tree does the same for the selected folder.
+  Mouse clicks don't scroll.
 
 ## Shortcuts
 
+Help › Keyboard Shortcuts (⌘/) lists all of them in the app.
+
 | Action | Keys |
 |---|---|
-| Back / Forward | `⌘[` / `⌘]` |
-| Up to enclosing folder | `⌘↑` |
-| Quick Look preview | `Space` (arrows switch files, `Space`/`Esc` closes) |
-| Open selection | `⌘↓` or double-click / Return |
-| Cut / Copy / Paste | `⌘X` / `⌘C` / `⌘V` |
-| Copy Path | `⌥⌘C` |
-| New File / New Folder | `⌥⌘N` / `⇧⌘N` |
+| Open | Return, `⌘O`, `⌘↓`, or double-click |
+| Rename | `F2` |
+| Duplicate | `⌘D` (creates "name - Copy") |
+| Move to Trash | `⌘⌫` or Delete (`fn-⌫`) |
+| Delete Immediately (confirmation asked) | `⌥⌘⌫` |
+| Empty Trash (confirmation asked) | `⇧⌘⌫` |
+| New Folder / New File | `⇧⌘N` / `⌥⌘N` |
+| Quick Look | `Space` or `⌘Y` (arrows switch files) |
 | Open in Terminal | `⌥⌘T` |
-| Show hidden files | `⇧⌘.` |
+| Show in Finder | `⌥⌘R` |
+| Eject volume | `⌘E` |
+| Cut / Copy / Paste | `⌘X` / `⌘C` / `⌘V` |
+| Move Item Here (paste as move) | `⌥⌘V` |
+| Copy Path | `⌥⌘C` |
+| Select All | `⌘A` |
 | Find | `⌘F` (Esc clears) |
-| Refresh | `⌘R` |
-| Home | `⇧⌘H` |
+| Back / Forward | `⌘[` / `⌘]`, Backspace (`⌫`), `⌥←` / `⌥→` |
+| Enclosing Folder | `⌘↑` or `⌥↑` |
+| Go to Folder (address bar) | `⌘L` or `⇧⌘G` |
+| This Mac / Home / Desktop | `⇧⌘C` / `⇧⌘H` / `⇧⌘D` |
+| Documents / Downloads | `⇧⌘O` / `⌥⌘L` |
+| Applications / Utilities | `⇧⌘A` / `⇧⌘U` |
+| Show Hidden Files | `⇧⌘.` |
+| Refresh | `⌘R` or `F5` |
+
+F2, F5, Delete, Backspace and the ⌥-arrows only work while the file list or folder tree has focus, so they never get in
+the way of typing in the address or search field. Home, This Mac, Trash, volumes and system folders can't be renamed,
+trashed or deleted from the app.
 
 Copy and cut use the system pasteboard, so you can copy files from Finder and paste them here, or the other way around.
 Cut files are moved on paste.

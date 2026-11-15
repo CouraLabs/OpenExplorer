@@ -294,7 +294,8 @@ struct FolderTreeView: NSViewRepresentable {
 
             if let target, case let row = outline.row(forItem: target), row >= 0 {
                 outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                outline.scrollRowToVisible(row)
+                // Let expansion finish laying out before centring.
+                DispatchQueue.main.async { [weak outline] in outline?.scrollRowToCenter(row) }
             } else {
                 outline.deselectAll(nil)
             }
@@ -344,6 +345,9 @@ struct FolderTreeView: NSViewRepresentable {
             guard !isSyncing, let outline = outlineView, outline.selectedRow >= 0,
                   let node = outline.item(atRow: outline.selectedRow) as? FolderNode else { return }
             lastPath = node.url.path  // avoid re-revealing what the user just clicked
+            if NSApp.currentEvent?.type == .keyDown {
+                outline.scrollRowToCenter(outline.selectedRow)  // arrow keys: keep the selection centred
+            }
             model.navigate(to: node.url)
         }
 

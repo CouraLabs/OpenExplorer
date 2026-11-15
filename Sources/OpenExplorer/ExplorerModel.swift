@@ -9,6 +9,13 @@ struct NamePrompt: Identifiable {
     let kind: NewItemKind
     let directory: URL
     let suggestedName: String
+    /// Set when renaming an existing item instead of creating one.
+    var renaming: URL? = nil
+
+    var title: String {
+        if renaming != nil { return "Rename" }
+        return kind == .folder ? "New Folder" : "New File"
+    }
 }
 
 enum SortKey: String, CaseIterable, Identifiable {
@@ -103,6 +110,12 @@ final class ExplorerModel: ObservableObject {
     private var searchDebounce: DispatchWorkItem?
     private var isResettingSearch = false
     @Published var namePrompt: NamePrompt?
+    /// Items waiting for "Delete Immediately" confirmation.
+    @Published var pendingPermanentDelete: [URL]?
+    @Published var confirmEmptyTrash = false
+    @Published var showShortcuts = false
+    /// Bumped by ⌘L / ⇧⌘G to focus the address bar.
+    @Published private(set) var focusAddressID = 0
     @Published private(set) var cutPaths: Set<String> = []
     @Published private(set) var canGoBack = false
     @Published private(set) var canGoForward = false
@@ -505,11 +518,12 @@ final class ExplorerModel: ObservableObject {
         NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
     }
 
-    func paste(into directory: URL) {
+    /// Pastes the clipboard's files. `forceMove` = Finder's "Move Item Here" (⌥⌘V).
+    func paste(into directory: URL, forceMove: Bool = false) {
         let pb = NSPasteboard.general
         guard let sources = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
               !sources.isEmpty else { return }
-        let isMove = cutChangeCount == pb.changeCount
+        let isMove = forceMove || cutChangeCount == pb.changeCount
         if isMove {
             pb.clearContents()
             clearCutState()
@@ -587,12 +601,176 @@ final class ExplorerModel: ObservableObject {
     }
 
     func moveToTrash(_ urls: [URL]) {
-        var errors: [String] = []
-        for url in urls {
+        let (allowed, blocked) = splitProtected(urls)
+        var errors = blocked.map { "“\(displayName($0))” can’t be moved to the Trash." }
+        for url in allowed {
             do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) }
             catch { errors.append("“\(url.lastPathComponent)”: \(error.localizedDescription)") }
         }
         finishFileOperation(in: currentURL, select: [], errors: errors, treeAll: false)
+    }
+
+    // MARK: - Keyboard-driven actions
+
+    /// What keyboard commands act on: the list selection, or the current folder when the tree has focus.
+    var commandTargets: [URL] {
+        if NSApp.keyWindow?.firstResponder is FolderOutlineView {
+            return isProtected(currentURL) ? [] : [currentURL]
+        }
+        return selectedURLs
+    }
+
+    /// Locations that must never be renamed, trashed or deleted from here.
+    func isProtected(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        let fixed: Set<String> = [home.path, computer.path, trash.path, "/Users", "/Volumes", "/System", "/Applications", "/Library"]
+        return fixed.contains(path) || volumes.contains { $0.url.path == path }
+    }
+
+    private func splitProtected(_ urls: [URL]) -> (allowed: [URL], blocked: [URL]) {
+        (urls.filter { !isProtected($0) }, urls.filter { isProtected($0) })
+    }
+
+    private func displayName(_ url: URL) -> String {
+        url.path == home.path ? "Home" : url.lastPathComponent
+    }
+
+    func focusAddressBar() { focusAddressID += 1 }
+
+    func navigate(toStandard directory: FileManager.SearchPathDirectory) {
+        let domain: FileManager.SearchPathDomainMask = directory == .applicationDirectory ? .localDomainMask : .userDomainMask
+        if let url = FileManager.default.urls(for: directory, in: domain).first { navigate(to: url) }
+    }
+
+    // Rename (F2)
+
+    func promptRename(_ url: URL?) {
+        guard let url else { return }
+        guard !isProtected(url) else {
+            errorMessage = "“\(displayName(url))” can’t be renamed."
+            return
+        }
+        namePrompt = NamePrompt(
+            kind: FileSystem.isFolder(url) ? .folder : .file,
+            directory: url.deletingLastPathComponent(),
+            suggestedName: url.lastPathComponent,
+            renaming: url
+        )
+    }
+
+    func commitNamePrompt(_ prompt: NamePrompt, name: String) {
+        if let url = prompt.renaming {
+            rename(url, to: name)
+        } else {
+            createItem(prompt.kind, named: name, in: prompt.directory)
+        }
+    }
+
+    func rename(_ url: URL, to rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name != url.lastPathComponent else { return }
+        guard !name.isEmpty, !name.contains("/"), name != ".", name != ".." else {
+            errorMessage = "“\(rawName)” is not a valid name."
+            return
+        }
+        let directory = url.deletingLastPathComponent()
+        let destination = directory.appendingPathComponent(name)
+        let caseOnly = name.lowercased() == url.lastPathComponent.lowercased()
+        if !caseOnly && FileManager.default.fileExists(atPath: destination.path) {
+            errorMessage = "An item named “\(name)” already exists in this location."
+            return
+        }
+        do {
+            if caseOnly {
+                // Case-insensitive volumes: go through a temporary name.
+                let temp = directory.appendingPathComponent(".\(UUID().uuidString)")
+                try FileManager.default.moveItem(at: url, to: temp)
+                try FileManager.default.moveItem(at: temp, to: destination)
+            } else {
+                try FileManager.default.moveItem(at: url, to: destination)
+            }
+        } catch {
+            errorMessage = "Couldn’t rename “\(url.lastPathComponent)”.\n\(error.localizedDescription)"
+            return
+        }
+        if url.path == currentURL.path {
+            // Renamed the folder we're in (from the tree): follow it.
+            navigate(to: destination, addToHistory: false)
+            requestTreeReload(path: directory.path)
+        } else {
+            finishFileOperation(in: directory, select: [destination.path], errors: [], treeAll: false)
+        }
+    }
+
+    // Duplicate (⌘D)
+
+    func duplicate(_ urls: [URL]) {
+        let sources = urls.filter { !isProtected($0) }
+        guard !sources.isEmpty else { return }
+        let directory = currentURL
+        Task.detached(priority: .userInitiated) {
+            var errors: [String] = []
+            var created: [String] = []
+            for source in sources {
+                let destination = FileSystem.availableCopyURL(for: source.lastPathComponent, in: source.deletingLastPathComponent())
+                do {
+                    try FileManager().copyItem(at: source, to: destination)
+                    created.append(destination.path)
+                } catch {
+                    errors.append("“\(source.lastPathComponent)”: \(error.localizedDescription)")
+                }
+            }
+            await MainActor.run { [errors, created] in
+                self.finishFileOperation(in: directory, select: created, errors: errors, treeAll: false)
+            }
+        }
+    }
+
+    // Delete Immediately (⌥⌘⌫), always confirmed
+
+    func requestPermanentDelete(_ urls: [URL]) {
+        let (allowed, blocked) = splitProtected(urls)
+        if !blocked.isEmpty {
+            errorMessage = blocked.map { "“\(displayName($0))” can’t be deleted." }.joined(separator: "\n")
+        }
+        if !allowed.isEmpty { pendingPermanentDelete = allowed }
+    }
+
+    func confirmPermanentDelete() {
+        guard let urls = pendingPermanentDelete else { return }
+        pendingPermanentDelete = nil
+        var errors: [String] = []
+        for url in urls {
+            do { try FileManager.default.removeItem(at: url) }
+            catch { errors.append("“\(url.lastPathComponent)”: \(error.localizedDescription)") }
+        }
+        finishFileOperation(in: currentURL, select: [], errors: errors, treeAll: true)
+    }
+
+    // Empty Trash (⇧⌘⌫), always confirmed; done by Finder so it works without Full Disk Access.
+
+    func emptyTrash() {
+        confirmEmptyTrash = false
+        var error: NSDictionary?
+        NSAppleScript(source: "tell application \"Finder\" to empty trash")?.executeAndReturnError(&error)
+        if let error {
+            errorMessage = "Couldn’t empty the Trash.\n\(error[NSAppleScript.errorMessage] as? String ?? "Unknown error")"
+        }
+        requestTreeReload(path: nil)
+        if currentURL.path == trash.path { reload() }
+    }
+
+    // Eject (⌘E): the selected volume, or the volume the current folder is on.
+
+    func ejectCurrentVolume() {
+        let candidates = selectedURLs + [currentURL]
+        for url in candidates {
+            if let volume = volumes.first(where: { url.path == $0.url.path || url.path.hasPrefix($0.url.path + "/") }) {
+                eject(volume.url)
+                return
+            }
+        }
+        NSSound.beep()
     }
 
     private func finishFileOperation(in directory: URL, select paths: [String], errors: [String], treeAll: Bool) {

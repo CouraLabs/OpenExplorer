@@ -3,6 +3,13 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var model: ExplorerModel
 
+    private var deleteQuestion: String {
+        let urls = model.pendingPermanentDelete ?? []
+        return urls.count == 1
+            ? "Are you sure you want to delete “\(urls[0].lastPathComponent)”?"
+            : "Are you sure you want to delete these \(urls.count) items?"
+    }
+
     var body: some View {
         NavigationSplitView {
             FolderTreeView()
@@ -11,7 +18,35 @@ struct ContentView: View {
             FileListView()
         }
         .navigationTitle(model.windowTitle)
-        .onAppear { QuickLookController.shared.attach(model) }
+        .onAppear {
+            QuickLookController.shared.attach(model)
+            KeyboardController.shared.attach(model)
+            ListScrollController.shared.attach(model)
+        }
+        .sheet(isPresented: $model.showShortcuts) {
+            ShortcutsView().environmentObject(model)
+        }
+        .confirmationDialog(
+            deleteQuestion,
+            isPresented: Binding(
+                get: { model.pendingPermanentDelete != nil },
+                set: { if !$0 { model.pendingPermanentDelete = nil } }
+            )
+        ) {
+            Button("Delete", role: .destructive) { model.confirmPermanentDelete() }
+                .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This item will be deleted immediately. You can’t undo this action.")
+        }
+        .confirmationDialog("Are you sure you want to permanently erase the items in the Trash?",
+                            isPresented: $model.confirmEmptyTrash) {
+            Button("Empty Trash", role: .destructive) { model.emptyTrash() }
+                .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You can’t undo this action.")
+        }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button { model.goBack() } label: { Label("Back", systemImage: "chevron.left") }
