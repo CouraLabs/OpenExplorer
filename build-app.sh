@@ -71,4 +71,14 @@ PLIST
 
 codesign --force --sign - "$APP" >/dev/null
 echo "Built: $APP"
+
+# ./build-app.sh --install  → copy into /Applications (replacing an older copy) and register with Launch Services.
+if [ "${1:-}" = "--install" ]; then
+    TARGET="/Applications/Open Explorer.app"
+    pkill -x OpenExplorer 2>/dev/null || true
+    rm -rf "$TARGET"
+    ditto "$APP" "$TARGET"
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$TARGET"
+    echo "Installed: $TARGET"
+fi
 echo "Run:   open \"$APP\""

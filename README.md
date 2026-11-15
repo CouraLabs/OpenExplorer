@@ -9,6 +9,12 @@ A Windows Explorer–style file browser for macOS (SwiftUI + AppKit, macOS 14.4+
 open "build/Open Explorer.app"
 ```
 
+To install it into `/Applications` (replacing any older copy):
+
+```bash
+./build-app.sh --install
+```
+
 The script compiles with `swiftc` directly because SwiftPM in the installed Command Line Tools
 fails to link package manifests. `Package.swift` is kept so the project can be opened in Xcode.
 
